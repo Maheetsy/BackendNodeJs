@@ -1,0 +1,300 @@
+// controllers/user.controller.js
+const mongoose = require('mongoose');
+const User = require('../models/User');
+
+const ALLOWED_ROLES = ['admin', 'gerente', 'vendedor'];
+const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
+
+const validateObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+// @desc    Registrar nuevo usuario (solo Admin/Gerente)
+// @route   POST /api/users/register
+// @access  Private (Admin/Gerente)
+exports.registerUser = async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nombre, email y contraseña son requeridos'
+      });
+    }
+
+    if (name.trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'El nombre debe tener al menos 2 caracteres'
+      });
+    }
+
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Formato de email inválido'
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'La contraseña debe tener al menos 8 caracteres'
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const existingUser = await User.findOne({ email: normalizedEmail });
+
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: 'El email ya está registrado'
+      });
+    }
+
+    let assignedRole = 'vendedor';
+    if (role) {
+      if (!ALLOWED_ROLES.includes(role)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Rol inválido'
+        });
+      }
+
+      const isPrivilegedRole = ['admin', 'gerente'].includes(role);
+      if (isPrivilegedRole && requesterRole !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo un administrador puede asignar roles de administrador o gerente'
+        });
+      }
+
+      assignedRole = role;
+    }
+
+    const user = await User.create({
+      name: name.trim(),
+      email: normalizedEmail,
+      hashed_password: password,
+      role: assignedRole
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Usuario creado exitosamente',
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        active: user.active
+      }
+    });
+  } catch (error) {
+    console.error('Error al registrar usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error en el servidor'
+    });
+  }
+};
+
+// @desc    Listar todos los usuarios (solo Admin/Gerente)
+// @route   GET /api/users
+// @access  Private (Admin/Gerente)
+exports.getAllUsers = async (req, res) => {
+  try {
+    const filters = {};
+    if (req.query.active) {
+      filters.active = req.query.active === 'true';
+    }
+
+    const users = await User.find(filters).select('-hashed_password').sort({ created_at: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      users
+    });
+  } catch (error) {
+    console.error('Error al obtener usuarios:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error en el servidor'
+    });
+  }
+};
+
+// @desc    Obtener un usuario por ID (solo Admin/Gerente)
+// @route   GET /api/users/:id
+// @access  Private (Admin/Gerente)
+exports.getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!validateObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID inválido'
+      });
+    }
+
+    const user = await User.findById(id).select('-hashed_password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    console.error('Error al obtener usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error en el servidor'
+    });
+  }
+};
+
+// @desc    Actualizar usuario (solo Admin/Gerente con restricciones)
+// @route   PUT /api/users/:id
+// @access  Private (Admin/Gerente)
+exports.updateUser = async (req, res) => {
+  try {
+    const { name, email, role, active } = req.body;
+    const { id } = req.params;
+
+    if (!validateObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID inválido'
+      });
+    }
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado'
+      });
+    }
+
+    if (name) {
+      if (name.trim().length < 2) {
+        return res.status(400).json({
+          success: false,
+          message: 'El nombre debe tener al menos 2 caracteres'
+        });
+      }
+      user.name = name.trim();
+    }
+
+    if (email) {
+      if (!EMAIL_REGEX.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Formato de email inválido'
+        });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      const existingUser = await User.findOne({ email: normalizedEmail, _id: { $ne: id } });
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          message: 'El email ya está en uso por otro usuario'
+        });
+      }
+      user.email = normalizedEmail;
+    }
+
+    if (role) {
+      if (!ALLOWED_ROLES.includes(role)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Rol inválido'
+        });
+      }
+
+      const isPrivilegedRole = ['admin', 'gerente'].includes(role);
+      if (isPrivilegedRole && req.user.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo un administrador puede asignar roles de administrador o gerente'
+        });
+      }
+
+      user.role = role;
+    }
+
+    if (active !== undefined) {
+      user.active = Boolean(active);
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Usuario actualizado exitosamente',
+      user: user.toJSON()
+    });
+  } catch (error) {
+    console.error('Error al actualizar usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error en el servidor'
+    });
+  }
+};
+
+// @desc    Desactivar usuario (borrado lógico)
+// @route   DELETE /api/users/:id
+// @access  Private (Admin/Gerente)
+exports.deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!validateObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID inválido'
+      });
+    }
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado'
+      });
+    }
+
+    if (!user.active) {
+      return res.status(400).json({
+        success: false,
+        message: 'El usuario ya está desactivado'
+      });
+    }
+
+    user.active = false;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Usuario desactivado exitosamente'
+    });
+  } catch (error) {
+    console.error('Error al desactivar usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error en el servidor'
+    });
+  }
+};
