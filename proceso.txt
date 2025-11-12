@@ -22,7 +22,7 @@ npm install nodemon --save-dev
 # 2.2. Crea el archivo '.env' (en la raíz)
 #    - ¡Asegúrate de que la URL de Mongo INCLUYE el nombre de la BD al final!
 #    - ¡Asegúrate de que JWT_SECRET sea IDÉNTICO al de FastAPI!
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/pos_db_node
+MONGODB_URI=mongodb+srv://user:.mongodb.net/pos_db_node
 JWT_SECRET=tu-clave-secreta-larga-y-compartida
 jwt_expires_in=1d
 
